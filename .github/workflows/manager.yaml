@@ -1,4 +1,4 @@
-name: Generate downloads repository
+name: Launch Runner
 
 on:
   push:
