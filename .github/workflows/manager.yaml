@@ -1,13 +1,9 @@
 name: Launch Runner
 
 on:
-  push:
-    branches:
-      - main
   repository_dispatch:
     types:
       - runner_start
-  workflow_dispatch:
 
 jobs:
   release:
