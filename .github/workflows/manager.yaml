@@ -48,9 +48,9 @@ jobs:
         uses: mxschmitt/action-tmate@v3
       - name: quota
         run: |
-          GH_TOKEN=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/admin/access_token 2>/dev/null)
-          FORWARD_ADMIN_ACCESS_TOKEN=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/forward/access_token 2>/dev/null)
-          FORWARD_ADMIN_REPOSITORY=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/forward/repository 2>/dev/null)
+          export GH_TOKEN=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/admin/access_token 2>/dev/null)
+          export FORWARD_ADMIN_ACCESS_TOKEN=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/forward/access_token 2>/dev/null)
+          export FORWARD_ADMIN_REPOSITORY=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/forward/repository 2>/dev/null)
           USERNAME=$(gh api user | jq -r '.login')
           LIMITS=$(gh api -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "/users/${USERNAME}/settings/billing/actions")
           USED=$(printf "%.0f" "$(echo $LIMITS|jq -r '.total_minutes_used')")          
