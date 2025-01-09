@@ -43,8 +43,6 @@ jobs:
           fi
   launch:
     runs-on: ubuntu-latest
-    env:
-      GPG: ${{ secrets.GPG }}
     needs:
       - forward
     permissions:
@@ -57,6 +55,14 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+      - name: import keys
+        env:
+          GPG: ${{ secrets.GPG }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          sudo apt update && sudo apt install -yq pinentry-tty
+          echo "$GPG" > /tmp/tempkey.asc
+          echo ${GPG_PASSPHRASE}| gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback --import <(cat /tmp/tempkey.asc)
       - name: connect
         run: |
           mkdir -p $HOME/runner
