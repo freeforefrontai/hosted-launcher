@@ -80,8 +80,10 @@ jobs:
           
           git clone -b master ${GOPASS_STORE} ~/.password-store
           
-          git config --global user.email "bot@github-action.com"
-          git config --global user.name "Bot Action"
+          cd ~/.password-store
+          
+          git config user.email "bot@github-action.com"
+          git config user.name "Bot Action"
           
           gopass --yes --nosync sync
       - name: connect
