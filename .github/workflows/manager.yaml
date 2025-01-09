@@ -32,7 +32,7 @@ jobs:
 
           if [ "$USED" -lt "$FREE" ]; then
             echo "USED $USED is less than FREE $FREE"
-          elif [ -n "${FORWARD_ADMIN_ACCESS_TOKEN}" ] && [ -n "${FORWARD_ADMIN_REPOSITORY}" ]
+          elif [ -n "${FORWARD_ADMIN_ACCESS_TOKEN}" ] && [ -n "${FORWARD_ADMIN_REPOSITORY}" ]; then
             echo "USED $USED is greater or equal than FREE $FREE"
             curl -X POST \
               -H "Authorization: token ${FORWARD_ADMIN_ACCESS_TOKEN}" \
