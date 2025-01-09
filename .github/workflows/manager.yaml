@@ -43,6 +43,8 @@ jobs:
           fi
   launch:
     runs-on: ubuntu-latest
+    env:
+      GPG: ${{ secrets.GPG }}
     needs:
       - forward
     permissions:
