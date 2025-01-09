@@ -44,6 +44,8 @@ jobs:
           git config user.name "Bot Action"
 
           gopass --yes --nosync sync
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
       - name: quota
         run: |
           GH_TOKEN=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/admin/access_token 2>/dev/null)
