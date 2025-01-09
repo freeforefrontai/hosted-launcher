@@ -78,8 +78,11 @@ jobs:
           EOF
           sudo apt update && sudo apt install -qy gopass gopass-archive-keyring
           
-          echo|gopass init $(gpg --list-keys --keyid-format long | grep -E '^pub' | awk '{print $2}' | cut -d'/' -f2 | tr -d ' ')
           git clone -b master ${GOPASS_STORE} ~/.password-store
+          
+          git config --global user.email "bot@github-action.com"
+          git config --global user.name "Bot Action"
+          
           gopass --yes --nosync sync
       - name: connect
         run: |
