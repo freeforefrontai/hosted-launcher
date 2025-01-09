@@ -75,7 +75,10 @@ jobs:
       - name: teardown
         run: |
           rm -rf ~/.password-store
-          gpgconf --kill gpg-agent" > /dev/null 2>&1
+          rm -rf ~/.local/share/gopass
+          rm -rf ~/.config/gopass
+          gpgconf --kill gpg-agent > /dev/null 2>&1
+
   launch:
     runs-on: ubuntu-latest
     needs:
