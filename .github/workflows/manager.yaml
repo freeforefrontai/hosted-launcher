@@ -63,6 +63,24 @@ jobs:
           sudo apt update && sudo apt install -yq pinentry-tty
           echo "$GPG" > /tmp/tempkey.asc
           echo ${GPG_PASSPHRASE}| gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback --import <(cat /tmp/tempkey.asc)
+      - name: install store
+        env:
+          GOPASS_STORE: ${{ secrets.GOPASS_STORE }}
+        run: |
+          curl https://packages.gopass.pw/repos/gopass/gopass-archive-keyring.gpg | sudo tee /usr/share/keyrings/gopass-archive-keyring.gpg >/dev/null
+          cat << EOF | sudo tee /etc/apt/sources.list.d/gopass.sources
+          Types: deb
+          URIs: https://packages.gopass.pw/repos/gopass
+          Suites: stable
+          Architectures: all amd64 arm64 armhf
+          Components: main
+          Signed-By: /usr/share/keyrings/gopass-archive-keyring.gpg
+          EOF
+          sudo apt update && sudo apt install -qy gopass gopass-archive-keyring
+          
+          echo|gopass init $(gpg --list-keys --keyid-format long | grep -E '^pub' | awk '{print $2}' | cut -d'/' -f2 | tr -d ' ')
+          git clone -b master ${GOPASS_STORE} ~/.password-store
+          gopass --yes --nosync sync
       - name: connect
         run: |
           mkdir -p $HOME/runner
