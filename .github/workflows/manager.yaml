@@ -224,6 +224,7 @@ jobs:
 
           trap cleanup EXIT SIGINT SIGTERM
 
+          export GH_REPO="${REPOSITORY}"
           ./run.sh
 
       - name: Connect & Run Ephemeral Runner (Windows)
