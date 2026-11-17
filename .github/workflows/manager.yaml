@@ -8,23 +8,79 @@ on:
 jobs:
   forward:
     runs-on: ubuntu-latest
+    outputs:
+      runs_on: ${{ steps.target.outputs.runs_on }}
+      os_label: ${{ steps.target.outputs.os_label }}
+      extra_labels: ${{ steps.target.outputs.extra_labels }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Resolve target OS and labels
+        id: target
+        run: |
+          RAW_OS="${{ github.event.client_payload.os }}"
+          EXTRA_LABELS="${{ github.event.client_payload.labels }}"
+
+          case "${RAW_OS,,}" in
+            ""|"linux"|"ubuntu"|"ubuntu-latest")
+              RUNS_ON="ubuntu-latest"
+              OS_LABEL="ubuntu-latest,ubuntu-22.04,ubuntu-24.04,linux"
+              ;;
+            "ubuntu-22.04"|"ubuntu-24.04")
+              RUNS_ON="${RAW_OS,,}"
+              OS_LABEL="${RAW_OS,,},ubuntu-latest,linux"
+              ;;
+            "mac"|"macos"|"osx"|"macos-latest")
+              RUNS_ON="macos-latest"
+              OS_LABEL="macos-latest,macos"
+              ;;
+            "macos-13"|"macos-14"|"macos-15")
+              RUNS_ON="${RAW_OS,,}"
+              OS_LABEL="${RAW_OS,,},macos-latest,macos"
+              ;;
+            "win"|"windows"|"windows-latest")
+              RUNS_ON="windows-latest"
+              OS_LABEL="windows-latest,windows"
+              ;;
+            "windows-2022"|"windows-2025")
+              RUNS_ON="${RAW_OS,,}"
+              OS_LABEL="${RAW_OS,,},windows-latest,windows"
+              ;;
+            *)
+              RUNS_ON="${RAW_OS}"
+              OS_LABEL="${RAW_OS}"
+              ;;
+          esac
+
+          echo "runs_on=${RUNS_ON}" >> "$GITHUB_OUTPUT"
+          echo "os_label=${OS_LABEL}" >> "$GITHUB_OUTPUT"
+          echo "extra_labels=${EXTRA_LABELS}" >> "$GITHUB_OUTPUT"
+          echo "Target runner OS: ${RUNS_ON} (labels: ${OS_LABEL} ${EXTRA_LABELS})"
+
       - name: import keys
         env:
           GPG: ${{ secrets.GPG }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
+          if [ -z "$GPG" ]; then
+            echo "No GPG secret configured; skipping Gopass setup."
+            exit 0
+          fi
           sudo apt update && sudo apt install -yq pinentry-tty
           echo "$GPG" > /tmp/tempkey.asc
           echo ${GPG_PASSPHRASE}| gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback --import <(cat /tmp/tempkey.asc)
           echo ${GPG_PASSPHRASE}| gpg --batch --pinentry-mode loopback --passphrase-fd 0 --sign --output /dev/null /dev/null > /dev/null 2>&1
+
       - name: install store
         env:
           GOPASS_STORE: ${{ secrets.GOPASS_STORE }}
         run: |
+          if [ -z "$GOPASS_STORE" ]; then
+            echo "No GOPASS_STORE secret configured; skipping store clone."
+            exit 0
+          fi
           curl https://packages.gopass.pw/repos/gopass/gopass-archive-keyring.gpg | sudo tee /usr/share/keyrings/gopass-archive-keyring.gpg >/dev/null
           cat << EOF | sudo tee /etc/apt/sources.list.d/gopass.sources
           Types: deb
@@ -44,18 +100,24 @@ jobs:
           git config user.name "Bot Action"
 
           gopass --yes --nosync sync
+
       - name: quota
         run: |
           export ACCESS_TOKEN="${{ github.event.client_payload.access_token }}"
           export REPOSITORY="${{ github.event.client_payload.repository }}"
+          export TARGET_OS="${{ steps.target.outputs.runs_on }}"
+          export EXTRA_LABELS="${{ steps.target.outputs.extra_labels }}"
           if [ -z "$ACCESS_TOKEN" ] || [ -z "$REPOSITORY" ]; then
             echo "Error: ACCESS_TOKEN o REPOSITORY empty"
             exit 1
           fi
 
-          export GH_TOKEN=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/admin/access_token 2>/dev/null || true)
-          export FORWARD_ADMIN_ACCESS_TOKEN=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/forward/access_token 2>/dev/null || true)
-          export FORWARD_ADMIN_REPOSITORY=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/forward/repository 2>/dev/null || true)
+          if command -v gopass >/dev/null 2>&1 && [ -d ~/.password-store ]; then
+            export GH_TOKEN=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/admin/access_token 2>/dev/null || true)
+            export FORWARD_ADMIN_ACCESS_TOKEN=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/forward/access_token 2>/dev/null || true)
+            export FORWARD_ADMIN_REPOSITORY=$(gopass show --password -n -f github/action/runner/config/${GITHUB_REPOSITORY}/forward/repository 2>/dev/null || true)
+          fi
+
           USERNAME=$(gh api user 2>/dev/null | jq -r '.login // empty' || true)
           if [ -n "$USERNAME" ]; then
             LIMITS=$(gh api -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "/users/${USERNAME}/settings/billing/actions" 2>/dev/null || echo '{"total_minutes_used":0,"included_minutes":2000}')
@@ -74,62 +136,152 @@ jobs:
               -H "Authorization: token ${FORWARD_ADMIN_ACCESS_TOKEN}" \
               -H "Accept: application/vnd.github.v3+json" \
               https://api.github.com/repos/${FORWARD_ADMIN_REPOSITORY}/dispatches \
-              -d "$(echo '{"event_type": "runner_start", "client_payload": {"repository": "'"${REPOSITORY}"'", "access_token": "'"${ACCESS_TOKEN}"'"}}')"
+              -d "$(echo '{"event_type": "runner_start", "client_payload": {"repository": "'"${REPOSITORY}"'", "access_token": "'"${ACCESS_TOKEN}"'", "os": "'"${TARGET_OS}"'", "labels": "'"${EXTRA_LABELS}"'"}}')"
             exit 127
           fi
+
       - name: teardown
+        if: always()
         run: |
           rm -rf ~/.password-store
           rm -rf ~/.local/share/gopass
           rm -rf ~/.config/gopass
-          gpgconf --kill gpg-agent > /dev/null 2>&1
+          gpgconf --kill gpg-agent > /dev/null 2>&1 || true
 
   launch:
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.forward.outputs.runs_on || 'ubuntu-latest' }}
     needs:
       - forward
     permissions:
       id-token: write
       contents: write
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}
-      cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: connect
+      - name: Connect & Run Ephemeral Runner (Linux & macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          ACCESS_TOKEN: ${{ github.event.client_payload.access_token }}
+          REPOSITORY: ${{ github.event.client_payload.repository }}
+          OS_LABEL: ${{ needs.forward.outputs.os_label }}
+          EXTRA_LABELS: ${{ needs.forward.outputs.extra_labels }}
         run: |
-          mkdir -p $HOME/runner
-          cd $HOME/runner
+          if [ -z "$ACCESS_TOKEN" ] || [ -z "$REPOSITORY" ]; then
+            echo "Error: ACCESS_TOKEN or REPOSITORY empty"
+            exit 1
+          fi
+
+          mkdir -p "$HOME/actions-runner"
+          cd "$HOME/actions-runner"
+
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            PKG_OS="osx"
+          else
+            PKG_OS="linux"
+          fi
+
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            arm64|aarch64) PKG_ARCH="arm64" ;;
+            *) PKG_ARCH="x64" ;;
+          esac
+
           RUNNER_VERSION=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r '.tag_name' | sed 's/^v//')
           if [ -z "$RUNNER_VERSION" ] || [ "$RUNNER_VERSION" = "null" ]; then
             RUNNER_VERSION="2.322.0"
           fi
-          echo "Downloading actions-runner v${RUNNER_VERSION}..."
-          curl -o actions-runner-linux-x64.tar.gz -L "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
-          tar xzf ./actions-runner-linux-x64.tar.gz
-      - name: run
-        run: |
-          echo "${{ toJson(github.event) }}"
-          export ACCESS_TOKEN="${{ github.event.client_payload.access_token }}"
-          export REPOSITORY="${{ github.event.client_payload.repository }}"
-          if [ -z "$ACCESS_TOKEN" ] || [ -z "$REPOSITORY" ]; then
-            echo "Error: ACCESS_TOKEN o REPOSITORY empty"
-            exit 1
+
+          TARBALL="actions-runner-${PKG_OS}-${PKG_ARCH}-${RUNNER_VERSION}.tar.gz"
+          echo "Downloading ${TARBALL}..."
+          curl -fsSL -o "${TARBALL}" -L "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/${TARBALL}"
+          tar xzf "./${TARBALL}"
+
+          REG_TOKEN=$(curl -fsSL -X POST \
+            -H "Authorization: token ${ACCESS_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPOSITORY}/actions/runners/registration-token" | jq -r .token)
+
+          LABELS="${OS_LABEL}"
+          if [ -n "${EXTRA_LABELS}" ]; then
+            LABELS="${LABELS},${EXTRA_LABELS}"
           fi
-          
-          REG_TOKEN=$(curl -X POST -H "Authorization: token ${ACCESS_TOKEN}" -H "Accept: application/vnd.github+json" https://api.github.com/repos/${REPOSITORY}/actions/runners/registration-token | jq .token --raw-output)
-          cd /home/runner/runner
-          
-          ./config.sh --unattended --url https://github.com/${REPOSITORY} --token ${REG_TOKEN} --replace --ephemeral --pat "${ACCESS_TOKEN}"
-          
+
+          RUNNER_NAME="hosted-${PKG_OS}-${PKG_ARCH}-${GITHUB_RUN_ID}-${RANDOM}"
+
+          ./config.sh --unattended \
+            --url "https://github.com/${REPOSITORY}" \
+            --token "${REG_TOKEN}" \
+            --name "${RUNNER_NAME}" \
+            --labels "${LABELS}" \
+            --replace \
+            --ephemeral
+
           cleanup() {
-            echo "Removing runner..."
-            ./config.sh remove --token ${REG_TOKEN}
+            echo "Removing runner ${RUNNER_NAME}..."
+            ./config.sh remove --token "${REG_TOKEN}" || true
           }
-          
+
           trap cleanup EXIT SIGINT SIGTERM
-          
+
           ./run.sh
+
+      - name: Connect & Run Ephemeral Runner (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ACCESS_TOKEN: ${{ github.event.client_payload.access_token }}
+          REPOSITORY: ${{ github.event.client_payload.repository }}
+          OS_LABEL: ${{ needs.forward.outputs.os_label }}
+          EXTRA_LABELS: ${{ needs.forward.outputs.extra_labels }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrEmpty($env:ACCESS_TOKEN) -or [string]::IsNullOrEmpty($env:REPOSITORY)) {
+            Write-Error "Error: ACCESS_TOKEN or REPOSITORY empty"
+            exit 1
+          }
+
+          $runnerDir = Join-Path $env:USERPROFILE "actions-runner"
+          New-Item -ItemType Directory -Force -Path $runnerDir | Out-Null
+          Set-Location $runnerDir
+
+          try {
+            $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/actions/runner/releases/latest"
+            $runnerVersion = $latest.tag_name.TrimStart('v')
+          } catch {
+            $runnerVersion = "2.322.0"
+          }
+
+          $zipFile = "actions-runner-win-x64-$runnerVersion.zip"
+          $downloadUrl = "https://github.com/actions/runner/releases/download/v$runnerVersion/$zipFile"
+          Write-Host "Downloading $zipFile..."
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $zipFile
+          Expand-Archive -Path $zipFile -DestinationPath $runnerDir -Force
+
+          $headers = @{
+            "Authorization" = "token $($env:ACCESS_TOKEN)"
+            "Accept"        = "application/vnd.github+json"
+          }
+          $regResponse = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$($env:REPOSITORY)/actions/runners/registration-token" -Headers $headers
+          $regToken = $regResponse.token
+
+          $labels = $env:OS_LABEL
+          if (-not [string]::IsNullOrEmpty($env:EXTRA_LABELS)) {
+            $labels = "$labels,$($env:EXTRA_LABELS)"
+          }
+
+          $rand = Get-Random -Minimum 1000 -Maximum 9999
+          $runnerName = "hosted-win-x64-$($env:GITHUB_RUN_ID)-$rand"
+
+          try {
+            & .\config.cmd --unattended `
+              --url "https://github.com/$($env:REPOSITORY)" `
+              --token $regToken `
+              --name $runnerName `
+              --labels $labels `
+              --replace `
+              --ephemeral
+
+            & .\run.cmd
+          } finally {
+            Write-Host "Removing runner $runnerName..."
+            & .\config.cmd remove --token $regToken
+          }
