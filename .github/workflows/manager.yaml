@@ -60,6 +60,7 @@ jobs:
           echo "Target runner OS: ${RUNS_ON} (labels: ${OS_LABEL} ${EXTRA_LABELS})"
 
       - name: import keys
+        if: vars.USE_GOPASS_QUOTA == 'true'
         env:
           GPG: ${{ secrets.GPG }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -74,6 +75,7 @@ jobs:
           echo ${GPG_PASSPHRASE}| gpg --batch --pinentry-mode loopback --passphrase-fd 0 --sign --output /dev/null /dev/null > /dev/null 2>&1
 
       - name: install store
+        if: vars.USE_GOPASS_QUOTA == 'true'
         env:
           GOPASS_STORE: ${{ secrets.GOPASS_STORE }}
         run: |
@@ -185,7 +187,7 @@ jobs:
             *) PKG_ARCH="x64" ;;
           esac
 
-          RUNNER_VERSION=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+          RUNNER_VERSION=$(curl -fsSL -H "Authorization: token ${ACCESS_TOKEN}" https://api.github.com/repos/actions/runner/releases/latest 2>/dev/null | jq -r '.tag_name // empty' | sed 's/^v//' || true)
           if [ -z "$RUNNER_VERSION" ] || [ "$RUNNER_VERSION" = "null" ]; then
             RUNNER_VERSION="2.322.0"
           fi
