@@ -217,44 +217,32 @@ jobs:
           trap cleanup EXIT SIGINT SIGTERM
 
           export GH_REPO="${REPOSITORY}"
-          if [ "${RUNNER_OS}" = "macOS" ]; then
-            ./config.sh --unattended \
-              --url "https://github.com/${REPOSITORY}" \
-              --token "${REG_TOKEN}" \
-              --name "${RUNNER_NAME}" \
-              --labels "${LABELS}" \
-              --replace
+          ./config.sh --unattended \
+            --url "https://github.com/${REPOSITORY}" \
+            --token "${REG_TOKEN}" \
+            --name "${RUNNER_NAME}" \
+            --labels "${LABELS}" \
+            --replace
 
-            ./run.sh &
-            RUNNER_PID=$!
-            RAN_JOB=0
-            IDLE_AFTER_JOB=0
-            while kill -0 "$RUNNER_PID" 2>/dev/null; do
-              if pgrep -f "Runner.Worker" >/dev/null 2>&1; then
-                RAN_JOB=1
-                IDLE_AFTER_JOB=0
-              elif [ "$RAN_JOB" -eq 1 ]; then
-                IDLE_AFTER_JOB=$((IDLE_AFTER_JOB + 1))
-                if [ "$IDLE_AFTER_JOB" -ge 6 ]; then
-                  echo "macOS runner idle for 30s after completing job(s); shutting down."
-                  kill "$RUNNER_PID" 2>/dev/null || true
-                  break
-                fi
+          ./run.sh &
+          RUNNER_PID=$!
+          RAN_JOB=0
+          IDLE_AFTER_JOB=0
+          while kill -0 "$RUNNER_PID" 2>/dev/null; do
+            if pgrep -f "Runner.Worker" >/dev/null 2>&1; then
+              RAN_JOB=1
+              IDLE_AFTER_JOB=0
+            elif [ "$RAN_JOB" -eq 1 ]; then
+              IDLE_AFTER_JOB=$((IDLE_AFTER_JOB + 1))
+              if [ "$IDLE_AFTER_JOB" -ge 5 ]; then
+                echo "Runner idle for 25s after completing job(s); shutting down."
+                kill "$RUNNER_PID" 2>/dev/null || true
+                break
               fi
-              sleep 5
-            done
-            wait "$RUNNER_PID" || true
-          else
-            ./config.sh --unattended \
-              --url "https://github.com/${REPOSITORY}" \
-              --token "${REG_TOKEN}" \
-              --name "${RUNNER_NAME}" \
-              --labels "${LABELS}" \
-              --replace \
-              --ephemeral
-
-            ./run.sh
-          fi
+            fi
+            sleep 5
+          done
+          wait "$RUNNER_PID" || true
 
       - name: Connect & Run Ephemeral Runner (Windows)
         if: runner.os == 'Windows'
