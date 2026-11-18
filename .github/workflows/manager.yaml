@@ -222,27 +222,10 @@ jobs:
             --token "${REG_TOKEN}" \
             --name "${RUNNER_NAME}" \
             --labels "${LABELS}" \
-            --replace
+            --replace \
+            --ephemeral
 
-          ./run.sh &
-          RUNNER_PID=$!
-          RAN_JOB=0
-          IDLE_AFTER_JOB=0
-          while kill -0 "$RUNNER_PID" 2>/dev/null; do
-            if pgrep -f "Runner.Worker" >/dev/null 2>&1; then
-              RAN_JOB=1
-              IDLE_AFTER_JOB=0
-            elif [ "$RAN_JOB" -eq 1 ]; then
-              IDLE_AFTER_JOB=$((IDLE_AFTER_JOB + 1))
-              if [ "$IDLE_AFTER_JOB" -ge 5 ]; then
-                echo "Runner idle for 25s after completing job(s); shutting down."
-                kill "$RUNNER_PID" 2>/dev/null || true
-                break
-              fi
-            fi
-            sleep 5
-          done
-          wait "$RUNNER_PID" || true
+          ./run.sh || [ $? -eq 100 ]
 
       - name: Connect & Run Ephemeral Runner (Windows)
         if: runner.os == 'Windows'
